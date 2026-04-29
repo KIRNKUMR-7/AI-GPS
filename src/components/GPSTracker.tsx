@@ -18,8 +18,13 @@ const GPSTracker = () => {
             Live GPS Tracking
           </h3>
         </div>
-        <Wifi className="w-3.5 h-3.5" />
-        <span className="text-xs font-medium">{error ? "Error" : "Active"}</span>
+        <div className="flex items-center gap-1.5">
+          <div className={`w-2 h-2 rounded-full animate-pulse ${error ? "bg-danger" : coords ? "bg-safe" : "bg-amber-400"}`} />
+          <Wifi className={`w-3.5 h-3.5 ${error ? "text-danger" : coords ? "text-safe" : "text-muted-foreground"}`} />
+          <span className={`text-xs font-medium ${error ? "text-danger" : coords ? "text-safe" : "text-muted-foreground"}`}>
+            {error ? "GPS Error" : coords ? "Active" : "Acquiring…"}
+          </span>
+        </div>
       </div>
 
       {error && (

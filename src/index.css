@@ -104,4 +104,17 @@
   .glow-danger {
     box-shadow: var(--glow-danger);
   }
+
+  @keyframes threat-pulse {
+    0%, 100% {
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.25), 0 0 0px rgba(239, 68, 68, 0);
+    }
+    50% {
+      box-shadow: 0 0 28px rgba(239, 68, 68, 0.55), 0 0 60px rgba(239, 68, 68, 0.15);
+    }
+  }
+
+  .animate-threat-pulse {
+    animation: threat-pulse 1.6s ease-in-out infinite;
+  }
 }

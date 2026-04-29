@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Eye, MapPin, Navigation, Activity, Zap, Search, AlertCircle, Database } from "lucide-react";
+import { Eye, MapPin, Navigation, Activity, Zap, Search, AlertCircle, Database, WifiOff, RefreshCw } from "lucide-react";
 import { fetchDeviceLocation, checkServerHealth, subscribeToDeviceLocation, type DeviceLocation } from "@/lib/api";
+import UWBPrecisionFinder from "@/components/UWBPrecisionFinder";
 
 const ParentDashboard = () => {
     const [deviceIdInput, setDeviceIdInput] = useState("");
@@ -13,14 +14,18 @@ const ParentDashboard = () => {
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [dbStatus, setDbStatus] = useState<"checking" | "connected" | "disconnected">("checking");
+    const [viewMode, setViewMode] = useState<"map" | "uwb">("map");
 
     useEffect(() => {
         const checkHealth = async () => {
             try {
                 const health = await checkServerHealth();
                 setDbStatus(health.status === "ok" ? "connected" : "disconnected");
-            } catch {
-                setDbStatus("disconnected");
+            } catch (err) {
+                // Only mark disconnected for genuine network failures
+                const msg = err instanceof Error ? err.message : String(err);
+                const isNetwork = msg.includes("Failed to fetch") || msg.includes("timed out") || msg.includes("NetworkError");
+                setDbStatus(isNetwork ? "disconnected" : "connected"); // table/RLS issues ≠ network down
             }
         };
         checkHealth();
@@ -39,9 +44,16 @@ const ParentDashboard = () => {
                 setError(null);
             } catch (err) {
                 if (err instanceof Error) {
-                    setError(err.message);
+                    const msg = err.message;
+                    if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("timed out")) {
+                        setError("Network unavailable — check your internet connection and try again.");
+                    } else if (msg.includes("not found") || msg.includes("expired")) {
+                        setError("Device not found. Make sure the Protecting device is running and has synced its location.");
+                    } else {
+                        setError(msg);
+                    }
                 } else {
-                    setError("Failed to fetch location");
+                    setError("Failed to fetch location — please retry.");
                 }
             }
         };
@@ -169,13 +181,22 @@ const ParentDashboard = () => {
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium ${dbStatus === "connected" ? "bg-safe/10 border-safe/20 text-safe" :
-                        dbStatus === "checking" ? "bg-secondary text-muted-foreground" :
-                            "bg-danger/10 border-danger/20 text-danger"
+                        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium ${
+                            dbStatus === "connected"
+                                ? "bg-safe/10 border-safe/20 text-safe"
+                                : dbStatus === "checking"
+                                ? "bg-secondary text-muted-foreground border-white/10"
+                                : "bg-danger/10 border-danger/20 text-danger"
                         }`}>
-                        <Database className="w-3.5 h-3.5" />
-                        {dbStatus === "connected" ? "DB Connected" : dbStatus === "checking" ? "Checking DB..." : "DB Disconnected"}
-                    </div>
+                            {dbStatus === "disconnected"
+                                ? <WifiOff className="w-3.5 h-3.5" />
+                                : <Database className="w-3.5 h-3.5" />}
+                            {dbStatus === "connected"
+                                ? "Supabase Connected"
+                                : dbStatus === "checking"
+                                ? "Connecting…"
+                                : "No Network"}
+                        </div>
                     <button
                         onClick={() => window.location.reload()}
                         className="p-2 rounded-lg bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors"
@@ -199,46 +220,90 @@ const ParentDashboard = () => {
                     className="glass-card bg-danger/5 border-danger/20 p-4 mb-6 flex items-start gap-3"
                 >
                     <AlertCircle className="w-5 h-5 text-danger shrink-0 mt-0.5" />
-                    <div>
-                        <h3 className="font-semibold text-danger text-sm">System Connection Issue</h3>
-                        <p className="text-xs text-danger/80">{error}</p>
-                        <p className="text-[10px] text-danger/60 mt-1 font-mono">Check if the 'locations' table exists in your Supabase project.</p>
+                    <div className="flex-1">
+                        <h3 className="font-semibold text-danger text-sm">Connection Issue</h3>
+                        <p className="text-xs text-danger/80 mt-0.5">{error}</p>
+                        {error.includes("'locations' table") && (
+                            <p className="text-[10px] text-danger/60 mt-1 font-mono">
+                                Check the 'locations' table exists in your Supabase project and RLS allows reads.
+                            </p>
+                        )}
                     </div>
+                    <button
+                        type="button"
+                        onClick={() => window.location.reload()}
+                        className="flex items-center gap-1 text-[10px] text-danger border border-danger/30 px-2 py-1 rounded-lg hover:bg-danger/10 transition-colors flex-shrink-0"
+                    >
+                        <RefreshCw className="w-3 h-3" />
+                        Retry
+                    </button>
                 </motion.div>
             )}
 
-            {/* Main Map Area */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="glass-card p-1 flex-1 min-h-[400px] mb-6 relative overflow-hidden flex flex-col"
-            >
-                <div className="absolute top-4 left-4 z-10 flex gap-2">
-                    <div className="glass-card px-3 py-1.5 flex items-center gap-2 border-safe/30 bg-background/80 backdrop-blur-xl">
-                        <div className="w-2 h-2 rounded-full bg-safe animate-pulse" />
-                        <span className="text-xs font-semibold text-safe tracking-wider uppercase">Live Connection</span>
-                    </div>
-                    <div className="glass-card px-3 py-1.5 flex items-center gap-2 border-primary/20 bg-background/80 backdrop-blur-xl">
-                        <span className="text-xs font-medium text-muted-foreground">Updated: {timeAgo}</span>
-                    </div>
+            {/* View Mode Toggle */}
+            <div className="flex justify-center mb-6 z-20 relative">
+                <div className="glass-card flex p-1 rounded-full border-primary/20 bg-secondary/30 backdrop-blur-md">
+                    <button 
+                        onClick={() => setViewMode("map")}
+                        className={`px-6 py-2 rounded-full text-xs font-semibold transition-all flex items-center gap-2 ${viewMode === "map" ? "bg-primary text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                        <MapPin className="w-4 h-4" />
+                        Map View
+                    </button>
+                    <button 
+                        onClick={() => setViewMode("uwb")}
+                        className={`px-6 py-2 rounded-full text-xs font-semibold transition-all flex items-center gap-2 ${viewMode === "uwb" ? "bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)]" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                        <Navigation className="w-4 h-4" />
+                        Precision Finder (UWB)
+                    </button>
                 </div>
+            </div>
 
-                {location ? (
-                    <iframe
-                        width="100%"
-                        className="flex-1 rounded-xl"
-                        frameBorder="0"
-                        style={{ border: 0, filter: "invert(90%) hue-rotate(180deg) contrast(1.2) brightness(0.9)" }}
-                        src={`https://maps.google.com/maps?q=${lat},${lng}&hl=en&z=16&output=embed`}
-                        allowFullScreen
-                    ></iframe>
-                ) : (
-                    <div className="flex-1 rounded-xl bg-secondary/30 flex items-center justify-center">
-                        <div className="w-8 h-8 border-4 border-safe/30 border-t-safe rounded-full animate-spin" />
+            {/* Main Tracker Area */}
+            {viewMode === "map" ? (
+                <motion.div
+                    key="map"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="glass-card p-1 flex-1 min-h-[400px] mb-6 relative overflow-hidden flex flex-col"
+                >
+                    <div className="absolute top-4 left-4 z-10 flex gap-2">
+                        <div className="glass-card px-3 py-1.5 flex items-center gap-2 border-safe/30 bg-background/80 backdrop-blur-xl">
+                            <div className="w-2 h-2 rounded-full bg-safe animate-pulse" />
+                            <span className="text-xs font-semibold text-safe tracking-wider uppercase">Live Connection</span>
+                        </div>
+                        <div className="glass-card px-3 py-1.5 flex items-center gap-2 border-primary/20 bg-background/80 backdrop-blur-xl">
+                            <span className="text-xs font-medium text-muted-foreground">Updated: {timeAgo}</span>
+                        </div>
                     </div>
-                )}
-            </motion.div>
+
+                    {location ? (
+                        <iframe
+                            width="100%"
+                            className="flex-1 rounded-xl"
+                            frameBorder="0"
+                            style={{ border: 0, filter: "invert(90%) hue-rotate(180deg) contrast(1.2) brightness(0.9)" }}
+                            src={`https://maps.google.com/maps?q=${lat},${lng}&hl=en&z=16&output=embed`}
+                            allowFullScreen
+                        ></iframe>
+                    ) : (
+                        <div className="flex-1 rounded-xl bg-secondary/30 flex items-center justify-center">
+                            <div className="w-8 h-8 border-4 border-safe/30 border-t-safe rounded-full animate-spin" />
+                        </div>
+                    )}
+                </motion.div>
+            ) : (
+                <motion.div
+                    key="uwb"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex-1 flex flex-col mb-6"
+                >
+                    <UWBPrecisionFinder targetLocation={location} />
+                </motion.div>
+            )}
 
             {/* Stats Grid */}
             <motion.div
